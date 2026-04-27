@@ -9,60 +9,29 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Ubuntu-24.04%20LTS-E95420?logo=ubuntu&logoColor=white" alt="Ubuntu 24.04 LTS">
   <img src="https://img.shields.io/badge/ROS%202-Jazzy%20Jalisco-22314E?logo=ros&logoColor=white" alt="ROS 2 Jazzy">
-  <img src="https://img.shields.io/badge/Gazebo-Harmonic-F58113" alt="Gazebo Harmonic">
+  <img src="https://img.shields.io/badge/Gazebo-Harmonic%208.x-F58113" alt="Gazebo Harmonic">
   <img src="https://img.shields.io/badge/build-colcon-blue" alt="colcon">
-  <img src="https://img.shields.io/badge/license-TBD-lightgrey" alt="License">
 </p>
 
 ---
 
 ## Overview
 
-**DriveSim** is a ROS 2-based autonomous vehicle simulation framework for developing and testing a non-holonomic vehicle platform in a simulated environment.
+**DriveSim** is a ROS 2-based autonomous vehicle simulation framework. The vehicle follows a circular road using a Stanley lateral controller, cubic-spline path interpolation, and a Bayesian occupancy filter for mapping. An interactive mode lets users place waypoints in RViz.
 
-The project is derived from the original [AutoCarROS](https://github.com/winstxnhdw/AutoCarROS) project and is being updated for a modern ROS 2 stack based on **Ubuntu 24.04**, **ROS 2 Jazzy Jalisco**, and **Gazebo Harmonic**.
-
-It provides a reusable workspace for experimenting with vehicle control, navigation, mapping, custom ROS 2 messages, robot descriptions, Gazebo simulation assets, and launch-based system integration.
-
-DriveSim can be used for:
-
-- Autonomous vehicle simulation
-- Vehicle control development
-- Navigation and path planning
-- Reactive behaviour testing
-- Occupancy-grid mapping
-- ROS 2 package development
-- Gazebo-based robotics prototyping
+The project is derived from [AutoCarROS](https://github.com/winstxnhdw/AutoCarROS) and has been fully migrated to **Ubuntu 24.04 LTS**, **ROS 2 Jazzy Jalisco**, and **Gazebo Harmonic (gz-sim 8.x)**.
 
 ---
 
 ## Target Environment
 
-| Dependency | Version |
-| --- | --- |
-| Ubuntu | 24.04 LTS |
+| Component | Version |
+|---|---|
+| OS | Ubuntu 24.04 LTS |
 | ROS 2 | Jazzy Jalisco |
-| Gazebo | Harmonic |
-| Build tool | `colcon` |
-
-> **Note**
->
-> The original project targeted ROS 2 Foxy and Gazebo 11.
-> This version targets ROS 2 Jazzy and Gazebo Harmonic. Some launch files, dependencies, and Gazebo integration packages may still require migration from Gazebo Classic to the modern Gazebo stack.
-
----
-
-## Features
-
-- ROS 2 Jazzy-based workspace
-- Gazebo Harmonic simulation target
-- Non-holonomic autonomous vehicle model
-- Vehicle description and RViz configuration
-- Gazebo worlds and simulation assets
-- Custom ROS 2 message definitions
-- Navigation and path-planning packages
-- Mapping components
-- Preset and interactive launch workflows
+| Gazebo | Harmonic (gz-sim 8.x) |
+| Python | 3.12 |
+| Build tool | colcon |
 
 ---
 
@@ -70,280 +39,227 @@ DriveSim can be used for:
 
 ```text
 DriveSim/
-├── launches/              # Main ROS 2 launch files
-├── autocar_description/   # Vehicle URDF and RViz configuration
-├── autocar_gazebo/        # Gazebo worlds and vehicle simulation files
-├── autocar_map/           # Mapping and occupancy-grid components
-├── autocar_msgs/          # Custom ROS 2 message definitions
-└── autocar_nav/           # Navigation, planning, and control components
-````
+src/
+  launches/              # ROS 2 launch files (default_launch.py, click_launch.py)
+  autocar_description/   # URDF/Xacro robot description and RViz config
+  autocar_gazebo/        # Gazebo Harmonic worlds, SDF model, meshes
+  autocar_map/           # Bayesian occupancy filter (C++ node)
+  autocar_msgs/          # Custom ROS 2 messages (Path2D, State2D, Twist2D)
+  autocar_nav/           # Navigation stack (Python nodes + spline library)
+```
 
 ---
 
-## Installation
+## System Dependencies
 
-### 1. Install ROS 2 Jazzy
-
-Follow the official ROS 2 Jazzy installation process for Ubuntu 24.04.
-
-After installation, source ROS 2:
+### 1. ROS 2 Jazzy
 
 ```bash
+# Follow https://docs.ros.org/en/jazzy/Installation.html
+sudo apt install ros-jazzy-desktop
 source /opt/ros/jazzy/setup.bash
 ```
 
-To source ROS 2 automatically in future terminals:
+### 2. Gazebo Harmonic + ROS bridge
 
 ```bash
-echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc
-source ~/.bashrc
-```
-
----
-
-### 2. Install Gazebo and ROS-Gazebo packages
-
-Install the Gazebo integration packages for ROS 2 Jazzy:
-
-```bash
-sudo apt update
 sudo apt install ros-jazzy-ros-gz
 ```
 
----
+This installs `ros_gz_sim`, `ros_gz_bridge`, and Gazebo Harmonic (gz-sim 8.x).
 
-### 3. Install build tools
+### 3. Build tools and Python deps
 
 ```bash
-sudo apt install python3-colcon-common-extensions
+sudo apt install python3-colcon-common-extensions python3-rosdep
+sudo apt install python3-numpy ros-jazzy-xacro ros-jazzy-robot-state-publisher ros-jazzy-rviz2
+pip3 install pandas  # required by globalplanner.py
 ```
 
 ---
 
-### 4. Create a ROS 2 workspace
+## Build
 
 ```bash
-mkdir -p ~/drivesim_ws/src
-cd ~/drivesim_ws/src
-```
+cd /path/to/DriveSim   # e.g., ~/Desktop/DriveSim
 
----
-
-### 5. Clone the repository
-
-```bash
-git clone https://github.com/YOUR_USERNAME/DriveSim.git
-cd DriveSim
-```
-
-Replace `YOUR_USERNAME` with your GitHub username or organization name.
-
----
-
-### 6. Install project dependencies
-
-From the workspace root:
-
-```bash
-cd ~/drivesim_ws
+# Install ROS package dependencies
+source /opt/ros/jazzy/setup.bash
 rosdep update
 rosdep install --from-paths src --ignore-src -r -y
-```
 
-If the repository contains additional dependency scripts, review them before running them because older scripts may still target ROS 2 Foxy or Gazebo 11.
-
----
-
-### 7. Build the workspace
-
-```bash
-cd ~/drivesim_ws
+# Build
 colcon build
-```
 
----
-
-### 8. Source the workspace
-
-```bash
+# Source
 source install/setup.bash
 ```
 
-To source the workspace automatically:
+### Verify packages are found
 
 ```bash
-echo "source ~/drivesim_ws/install/setup.bash" >> ~/.bashrc
-source ~/.bashrc
+ros2 pkg list | grep autocar
+# Expected output:
+# autocar_description
+# autocar_gazebo
+# autocar_map
+# autocar_msgs
+# autocar_nav
 ```
 
 ---
 
 ## Usage
 
-Before launching the simulation, make sure both ROS 2 and the workspace are sourced:
+Always source both ROS 2 and the workspace before launching:
 
 ```bash
 source /opt/ros/jazzy/setup.bash
-source ~/drivesim_ws/install/setup.bash
-```
-
-You can also rebuild before running:
-
-```bash
-cd ~/drivesim_ws
-colcon build
 source install/setup.bash
 ```
 
----
+### Default simulation (preset waypoint loop)
 
-### Default Simulation
-
-Runs the main autonomous vehicle simulation pipeline with preset waypoints.
+Starts the vehicle on a circular road. It follows pre-recorded waypoints autonomously using the global planner and Stanley controller.
 
 ```bash
 ros2 launch launches default_launch.py
 ```
 
----
+### Interactive simulation (click-to-navigate)
 
-### Interactive Simulation
-
-Runs an interactive simulation pipeline for testing, debugging, and manual waypoint selection.
+Place at least 2 waypoints using **RViz's "2D Goal Pose"** tool. The vehicle will follow a cubic spline through them.
 
 ```bash
 ros2 launch launches click_launch.py
 ```
 
----
-
-## Launch Files
-
-| Launch file         | Description                                                                |
-| ------------------- | -------------------------------------------------------------------------- |
-| `default_launch.py` | Starts the complete simulation pipeline with preset waypoints.             |
-| `click_launch.py`   | Starts the interactive pipeline for testing and manual waypoint selection. |
-
----
-
-## Packages
-
-| Package               | Description                                                    |
-| --------------------- | -------------------------------------------------------------- |
-| `launches`            | Main launch files for starting the simulation.                 |
-| `autocar_description` | Vehicle URDF, model description, and RViz configuration files. |
-| `autocar_gazebo`      | Gazebo worlds, SDF models, and simulation assets.              |
-| `autocar_map`         | Mapping and occupancy-grid components.                         |
-| `autocar_msgs`        | Custom ROS 2 message definitions shared across the project.    |
-| `autocar_nav`         | Navigation, path planning, and control stack.                  |
-
----
-
-## Migration Notes
-
-This repository is being adapted from an older ROS 2 Foxy and Gazebo 11 setup to a newer ROS 2 Jazzy and Gazebo Harmonic setup.
-
-Important migration areas include:
-
-* Replacing Gazebo Classic-specific dependencies with `ros_gz` packages
-* Updating launch files for the Jazzy environment
-* Checking Python package compatibility with Ubuntu 24.04
-* Updating deprecated ROS 2 APIs where necessary
-* Verifying URDF, SDF, and Gazebo plugin compatibility
-* Replacing old Gazebo Classic commands with modern Gazebo commands
-
-Older Foxy/Gazebo 11 scripts such as:
+### Optional: select a different world
 
 ```bash
-ros-foxy-desktop-full-install.sh
+ros2 launch launches default_launch.py world:=autocar_city.world
 ```
 
-should not be used on Ubuntu 24.04 unless they have been updated for Jazzy.
+---
+
+## Architecture
+
+### Topic Flow
+
+```
+Gazebo Harmonic (gz-sim)
+  /model/autocar/cmd_vel      <-- from ROS /autocar/cmd_vel (via bridge remapping)
+  /model/autocar/odometry     --> ROS /autocar/odom (via bridge)
+  /model/autocar/tf           --> ROS /tf (via bridge)
+  /model/autocar/scan         --> ROS /scan (via bridge)
+
+ROS 2 Navigation Stack
+  /autocar/odom           --> localisation.py --> /autocar/state2D
+  /autocar/state2D        --> global_planner  --> /autocar/goals
+  /autocar/goals          --> local_planner   --> /autocar/path
+  /autocar/path           --> tracker.py      --> /autocar/cmd_vel
+  /autocar/odom + /scan   --> bof             --> /map
+```
+
+### Nodes
+
+| Node | Package | Purpose |
+|---|---|---|
+| `localisation.py` | autocar_nav | Converts odometry to State2D |
+| `globalplanner.py` | autocar_nav | Selects waypoints from CSV (2 Hz) |
+| `localplanner.py` | autocar_nav | Cubic spline interpolation |
+| `tracker.py` | autocar_nav | Stanley lateral controller |
+| `clickplanner.py` | autocar_nav | Interactive waypoint planner |
+| `bof` | autocar_map | Bayesian occupancy filter |
+
+---
+
+## Gazebo Classic to Gazebo Harmonic Migration
+
+The original project used Gazebo Classic (Gazebo 11) with `gazebo_ros` plugins. This version uses Gazebo Harmonic (gz-sim 8.x) with native gz-sim plugins.
+
+| Aspect | Gazebo Classic | Gazebo Harmonic |
+|---|---|---|
+| Drive plugin | `libgazebo_ros_ackermann_drive.so` | `gz-sim-ackermann-steering-system` |
+| Laser sensor | `libgazebo_ros_ray_sensor.so` | `gpu_lidar` sensor type (native) |
+| Launch | `gzserver` + `gzclient` executables | `gz_sim.launch.py` via `ros_gz_sim` |
+| Bridge | `gazebo_ros` | `ros_gz_bridge` (parameter_bridge) |
+| Model path | `GAZEBO_MODEL_PATH` | `GZ_SIM_RESOURCE_PATH` |
+| SDF version | 1.5 | 1.8 |
+| Odometry topic | `/autocar/odom` | `/model/autocar/odometry` (bridged) |
+| cmd_vel topic | `/autocar/cmd_vel` | `/model/autocar/cmd_vel` (bridged) |
+
+The bridge remaps Gazebo topics to the ROS names expected by nav nodes:
+- `/model/autocar/cmd_vel` <-> `/autocar/cmd_vel`
+- `/model/autocar/odometry` -> `/autocar/odom`
+
+---
+
+## Known Issues / Limitations
+
+1. **`<road>` element in world**: The circular road is defined with `<road>` elements in SDF. Gazebo Harmonic supports this for visualization but may not render road textures identically to Gazebo Classic. A flat grey ground plane is included as fallback.
+
+2. **Lidar bridge**: The lidar uses `gpu_lidar` sensor type. The `gz-sim-sensors-system` plugin requires a GPU-capable render engine (ogre2). On headless systems without GPU, sensor data may not publish. Use `--render-engine ogre` if ogre2 is unavailable.
+
+3. **Pandas not in rosdep**: `pandas` is required by `globalplanner.py` but must be installed via `pip3 install pandas` as it is not in the ROS apt index.
+
+4. **First waypoints.csv loop**: The waypoints form a circular arc. On first start, the global planner may publish the terminal waypoints briefly before tracking settles.
 
 ---
 
 ## Troubleshooting
 
-### Build changes are not applied
-
-If recent changes are not reflected after building, remove the generated build folders and rebuild:
+### Gazebo window does not open
 
 ```bash
-cd ~/drivesim_ws
+# Check gz-sim works independently
+gz sim --verbose worlds/shapes.sdf
+```
+
+### Vehicle not spawning
+
+```bash
+# Verify GZ_SIM_RESOURCE_PATH includes the models directory
+echo $GZ_SIM_RESOURCE_PATH
+# The launch file sets this automatically. If running manually:
+export GZ_SIM_RESOURCE_PATH=$(ros2 pkg prefix autocar_gazebo)/share/autocar_gazebo/models
+```
+
+### Nodes crash with "Missing ROS parameters"
+
+The navigation nodes require the `navigation_params.yaml` to be loaded. When launched via `launch_launch.py`, parameters are passed automatically. If running nodes manually:
+
+```bash
+ros2 run autocar_nav localisation.py --ros-args \
+  --params-file $(ros2 pkg prefix autocar_nav)/share/autocar_nav/config/navigation_params.yaml
+```
+
+### Build errors after modifying source
+
+```bash
+colcon build
+source install/setup.bash
+```
+
+If symbols are stale:
+
+```bash
 rm -rf build install log
 colcon build
 source install/setup.bash
 ```
 
----
-
-### Package cannot be found
-
-Make sure the workspace has been sourced:
-
-```bash
-source ~/drivesim_ws/install/setup.bash
-```
-
-Check whether ROS 2 can find the project packages:
-
-```bash
-ros2 pkg list | grep autocar
-```
-
----
-
-### ROS 2 command not found
-
-Source the ROS 2 Jazzy setup file:
+### ros2 pkg list does not show autocar packages
 
 ```bash
 source /opt/ros/jazzy/setup.bash
-```
-
-To make this permanent:
-
-```bash
-echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc
-source ~/.bashrc
-```
-
----
-
-### Launch file does not start
-
-Check that:
-
-* Ubuntu 24.04 is being used.
-* ROS 2 Jazzy is installed.
-* Gazebo Harmonic or `ros-jazzy-ros-gz` is installed.
-* The workspace was built successfully.
-* The workspace has been sourced.
-* Old Foxy or Gazebo 11 dependencies are not being used accidentally.
-
----
-
-### Dependency errors during build
-
-Try installing missing dependencies with `rosdep`:
-
-```bash
-cd ~/drivesim_ws
-rosdep update
-rosdep install --from-paths src --ignore-src -r -y
-```
-
-Then rebuild:
-
-```bash
-colcon build
 source install/setup.bash
+ros2 pkg list | grep autocar
 ```
 
 ---
 
 ## Credits
 
-DriveSim is based on the ROS 2 migration of [AutoCarROS](https://github.com/winstxnhdw/AutoCarROS).
-
-The project has been renamed and updated to target a newer ROS 2 development environment.
+DriveSim is based on [AutoCarROS](https://github.com/winstxnhdw/AutoCarROS) by winstxnhdw.
+Migrated to ROS 2 Jazzy + Gazebo Harmonic.
