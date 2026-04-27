@@ -1,0 +1,5 @@
+pandas>=2.0.0
+numpy>=1.26.0
+catkin-pkg>=1.0.0
+empy>=3.3.4,<4.0.0
+lark>=1.1.0
