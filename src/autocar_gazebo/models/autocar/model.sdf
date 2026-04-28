@@ -28,7 +28,7 @@
     </joint>
 
     <link name="hokuyo_link">
-      <pose relative_to='base_link'>0 2.34 0.72 0 0 1.5708</pose>
+      <pose relative_to='base_link'>2.34 0 0.72 0 0 0</pose>
       <inertial>
         <mass>0.001</mass>
         <inertia>
@@ -66,6 +66,9 @@
     </link>
 
     <link name='chassis_link'>
+      <!-- Original mesh/joint coordinates are Y-forward; rotate the chassis so
+           base_link follows the ROS/Gz convention used by AckermannSteering: +X forward. -->
+      <pose relative_to='base_link'>0 0 0 0 0 -1.5708</pose>
       <inertial>
         <pose>1e-06 0.07307 0.65096 0 -0 0</pose>
         <mass>1580</mass>

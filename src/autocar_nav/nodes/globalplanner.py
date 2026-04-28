@@ -101,9 +101,9 @@ class GlobalPathPlanner(Node):
         3. Preserving a fixed window of points ahead/behind the vehicle
         '''
 
-        # Position of vehicle front axle
-        fx = self.x + self.cg2frontaxle * -np.sin(self.theta)
-        fy = self.y + self.cg2frontaxle * np.cos(self.theta)
+        # Position of vehicle front axle. The base_link convention is +X forward.
+        fx = self.x + self.cg2frontaxle * np.cos(self.theta)
+        fy = self.y + self.cg2frontaxle * np.sin(self.theta)
 
         dx = [fx - icx for icx in self.ax]
         dy = [fy - icy for icy in self.ay]
@@ -125,7 +125,7 @@ class GlobalPathPlanner(Node):
             px = self.ax[-self.wp_published:]
             py = self.ay[-self.wp_published:]
 
-        elif transform[1] < (0.0 - self.passed_threshold):
+        elif transform[0] < (0.0 - self.passed_threshold):
             self.get_logger().info('Closest Waypoint #{} (Passed)'.format(closest_id))
             px = self.ax[closest_id - (self.wp_behind - 1): closest_id + (self.wp_ahead + 1)]
             py = self.ay[closest_id - (self.wp_behind - 1): closest_id + (self.wp_ahead + 1)]

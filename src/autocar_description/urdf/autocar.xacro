@@ -16,7 +16,7 @@
   <link name="base_link" />
 
   <joint name="chassis_link_joint" type="fixed">
-    <origin xyz="0 0 0.4936" rpy="0 0 0" />
+    <origin xyz="0 0 0.4936" rpy="0 0 -1.5708" />
     <parent link="base_link" />
     <child link="chassis_link" />
   </joint>

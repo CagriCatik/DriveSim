@@ -115,9 +115,9 @@ class PathTracker(Node):
 
         ''' Calculates the target index and each corresponding error '''
 
-        # Calculate position of the front axle
-        fx = self.x + self.cg2frontaxle * -np.sin(self.yaw)
-        fy = self.y + self.cg2frontaxle * np.cos(self.yaw)
+        # Calculate position of the front axle.
+        fx = self.x + self.cg2frontaxle * np.cos(self.yaw)
+        fy = self.y + self.cg2frontaxle * np.sin(self.yaw)
 
         dx = [fx - icx for icx in self.cx] # Find the x-axis of the front axle relative to the path
         dy = [fy - icy for icy in self.cy] # Find the y-axis of the front axle relative to the path
@@ -125,12 +125,12 @@ class PathTracker(Node):
         d = np.hypot(dx, dy) # Find the distance from the front axle to the path
         target_idx = np.argmin(d) # Find the shortest distance in the array
 
-        # Cross track error, project RMS error onto the front axle vector
-        front_axle_vec = [-np.cos(self.yaw + np.pi), -np.sin(self.yaw + np.pi)]
+        # Cross track error: project displacement onto the right-of-vehicle direction.
+        front_axle_vec = [np.sin(self.yaw), -np.cos(self.yaw)]
         self.crosstrack_error = np.dot([dx[target_idx], dy[target_idx]], front_axle_vec)
 
         # Heading error
-        self.heading_error = normalise_angle(self.cyaw[target_idx] - self.yaw - np.pi * 0.5)
+        self.heading_error = normalise_angle(self.cyaw[target_idx] - self.yaw)
         self.target_idx = target_idx
     
         pose = PoseStamped()

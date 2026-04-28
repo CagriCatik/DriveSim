@@ -123,7 +123,7 @@ class LocalPathPlanner(Node):
             vpose.pose.position.x = cx[n]
             vpose.pose.position.y = cy[n]
             vpose.pose.position.z = 0.0
-            vpose.pose.orientation = yaw_to_quaternion(np.pi * 0.5 - cyaw[n])
+            vpose.pose.orientation = yaw_to_quaternion(cyaw[n])
             viz_path.poses.append(vpose)
 
         self.local_planner_pub.publish(target_path)

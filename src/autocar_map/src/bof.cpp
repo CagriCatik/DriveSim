@@ -1,5 +1,6 @@
-#include <memory>
 #include <chrono>
+#include <cmath>
+#include <memory>
 #include "rclcpp/rclcpp.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "nav_msgs/msg/occupancy_grid.hpp"
@@ -34,7 +35,9 @@ class OccupancyMapping : public rclcpp::Node
     double x = 0.0;
     double y = 0.0;
     double theta = 0.0;
-    double cg2lidar = 2.4;
+    double lidar_offset_x = 2.34;
+    double lidar_offset_y = 0.0;
+    double lidar_yaw_offset = 0.0;
     float lat_update_range = 10.0, long_update_range = 30.0;
 
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr subscription_;
@@ -67,42 +70,61 @@ class OccupancyMapping : public rclcpp::Node
     void updateMap( sensor_msgs::msg::LaserScan::SharedPtr scan )
     {
         const double angle_inc = scan->angle_increment;
+        const double angle_min = scan->angle_min;
         const double range_max = scan->range_max;
         const double range_min = scan->range_min;
-        double R, lidar_x, lidar_y, px, py, pxl, pyl, angle;
+        double R, lidar_x, lidar_y, lidar_yaw, px, py, pxl, pyl, angle;
 
         for(size_t i = 0; i < scan->ranges.size(); i ++){
             
             R = scan->ranges.at(i);
+            if (!std::isfinite(R) && !std::isinf(R))
+                continue;
+
             if (R < range_min)
                 continue;
 
-            for(double r = 0.0; r < range_max; r += 0.2)
+            const bool has_hit = std::isfinite(R) && R <= range_max;
+            const double ray_length = has_hit ? R : range_max;
+            angle = angle_min + i*angle_inc;
+
+            for(double r = range_min; r < ray_length; r += gmap.getCellSize())
             {
 
                 // Location of point in laser frame
-                angle = i*angle_inc;
                 pxl = r*cos(angle);
                 pyl = r*sin(angle);
 
-                if ( (abs(pxl) > lat_update_range || abs(pyl) > long_update_range) && (R >range_max) )
+                if ((std::abs(pxl) > long_update_range || std::abs(pyl) > lat_update_range) && !has_hit)
                     continue;
 
                 // Location of lidar in global frame
-                lidar_x = x + cg2lidar * -sin(theta);
-                lidar_y = y + cg2lidar * cos(theta);
+                lidar_x = x + lidar_offset_x*cos(theta) - lidar_offset_y*sin(theta);
+                lidar_y = y + lidar_offset_x*sin(theta) + lidar_offset_y*cos(theta);
+                lidar_yaw = theta + lidar_yaw_offset;
 
                 // Determines location of point in global frame
-                px = pxl*cos(theta) - pyl*sin(theta) + lidar_x;
-                py = pxl*sin(theta) + pyl*cos(theta) + lidar_y;
+                px = pxl*cos(lidar_yaw) - pyl*sin(lidar_yaw) + lidar_x;
+                py = pxl*sin(lidar_yaw) + pyl*cos(lidar_yaw) + lidar_y;
 
-                if ( (R < range_max) && (r > R) )
-                {
-                    gmap.setGridOcc(px, py);
-                    break;
-                }
-                else
-                    gmap.setGridFree(px, py);
+                gmap.setGridFree(px, py);
+            }
+
+            if (has_hit)
+            {
+                pxl = R*cos(angle);
+                pyl = R*sin(angle);
+
+                if (std::abs(pxl) > long_update_range || std::abs(pyl) > lat_update_range)
+                    continue;
+
+                lidar_x = x + lidar_offset_x*cos(theta) - lidar_offset_y*sin(theta);
+                lidar_y = y + lidar_offset_x*sin(theta) + lidar_offset_y*cos(theta);
+                lidar_yaw = theta + lidar_yaw_offset;
+
+                px = pxl*cos(lidar_yaw) - pyl*sin(lidar_yaw) + lidar_x;
+                py = pxl*sin(lidar_yaw) + pyl*cos(lidar_yaw) + lidar_y;
+                gmap.setGridOcc(px, py);
             }
         }
     }
@@ -116,4 +138,3 @@ int main(int argc, char * argv[])
     rclcpp::shutdown();
     return 0;
 }
-
