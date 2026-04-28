@@ -24,27 +24,61 @@ class Localisation(Node):
         # transforms from the robot frame.
         self.tf_broadcaster = tf2_ros.TransformBroadcaster(self)
 
-        # Initialise subscribers
-        self.odom_sub = self.create_subscription(Odometry, '/autocar/odom', self.vehicle_state_cb, 10)
-
         # Load parameters
         try:
             self.declare_parameters(
                 namespace='',
                 parameters=[
-                    ('update_frequency', 50.0)
+                    ('update_frequency', 50.0),
+                    ('odometry_topic', '/odometry/filtered'),
+                    ('fallback_odometry_topic', '/autocar/odom'),
+                    ('primary_timeout', 0.5),
+                    ('publish_tf', True)
                 ]
             )
 
             self.frequency = float(self.get_parameter("update_frequency").value)
+            self.odometry_topic = str(self.get_parameter("odometry_topic").value)
+            self.fallback_odometry_topic = str(self.get_parameter("fallback_odometry_topic").value)
+            self.primary_timeout = float(self.get_parameter("primary_timeout").value)
+            self.publish_tf = bool(self.get_parameter("publish_tf").value)
 
         except Exception:
             raise Exception("Missing ROS parameters. Check the configuration file.")
 
+        # Initialise subscribers. Prefer the EKF output when available, but keep
+        # Gazebo odometry as a fallback so RViz and downstream nodes still get
+        # odom -> base_link if the EKF is not publishing yet.
+        self.odom_sub = self.create_subscription(Odometry, self.odometry_topic, self.primary_odom_cb, 10)
+        self.fallback_odom_sub = None
+        if self.fallback_odometry_topic and self.fallback_odometry_topic != self.odometry_topic:
+            self.fallback_odom_sub = self.create_subscription(
+                Odometry,
+                self.fallback_odometry_topic,
+                self.fallback_odom_cb,
+                10,
+            )
+
         # Class constants
         self.state = None
+        self.last_primary_time = None
 
-    def vehicle_state_cb(self, msg):
+    def primary_odom_cb(self, msg):
+        self.last_primary_time = self.get_clock().now()
+        self.publish_state(msg)
+
+    def fallback_odom_cb(self, msg):
+        if self.primary_odom_is_fresh():
+            return
+        self.publish_state(msg)
+
+    def primary_odom_is_fresh(self):
+        if self.last_primary_time is None:
+            return False
+        age = (self.get_clock().now() - self.last_primary_time).nanoseconds * 1e-9
+        return age <= self.primary_timeout
+
+    def publish_state(self, msg):
         self.state = msg
         self.update_state()
 
@@ -63,7 +97,8 @@ class Localisation(Node):
         t.transform.translation.y = self.state.pose.pose.position.y
         t.transform.translation.z = self.state.pose.pose.position.z
         t.transform.rotation = self.state.pose.pose.orientation
-        self.tf_broadcaster.sendTransform(t)
+        if self.publish_tf:
+            self.tf_broadcaster.sendTransform(t)
 
         # Define vehicle pose x,y, theta
         state2d = State2D()

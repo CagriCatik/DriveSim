@@ -1,0 +1,9 @@
+vehicle:
+  wheel_base: 2.531
+  wheel_radius: 0.3425
+  width: 1.75
+  length: 4.8
+  cg_to_front_axle: 1.483
+  max_steering_angle: 0.95
+  max_speed: 20.0
+  max_acceleration: 10.0

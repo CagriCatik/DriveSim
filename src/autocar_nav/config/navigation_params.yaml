@@ -1,6 +1,10 @@
 localisation:
     ros__parameters:
         update_frequency: 50.0
+        odometry_topic: "/odometry/filtered"
+        fallback_odometry_topic: "/autocar/odom"
+        primary_timeout: 0.5
+        publish_tf: true
 
 local_planner:
     ros__parameters:
@@ -25,3 +29,4 @@ path_tracker:
         yawrate_gain: 1.0
         steering_limits: 0.95
         centreofgravity_to_frontaxle: 1.483
+        trajectory_timeout: 0.5

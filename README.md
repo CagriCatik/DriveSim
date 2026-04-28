@@ -43,8 +43,13 @@ src/
   launches/              # ROS 2 launch files (default_launch.py, click_launch.py)
   autocar_description/   # URDF/Xacro robot description and RViz config
   autocar_gazebo/        # Gazebo Harmonic worlds, SDF model, meshes
+  autocar_common/        # Shared frame names and vehicle parameters
+  autocar_localization/  # robot_localization EKF configuration
+  autocar_perception/    # Lightweight lidar obstacle perception
+  autocar_planning/      # Frenet trajectory planner and helpers
+  autocar_safety/        # Safety gate between controller and vehicle command
   autocar_map/           # Bayesian occupancy filter (C++ node)
-  autocar_msgs/          # Custom ROS 2 messages (Path2D, State2D, Twist2D)
+  autocar_msgs/          # Custom ROS 2 messages (paths, state, objects, trajectories)
   autocar_nav/           # Navigation stack (Python nodes + spline library)
 ```
 
@@ -73,6 +78,7 @@ This installs `ros_gz_sim`, `ros_gz_bridge`, and Gazebo Harmonic (gz-sim 8.x).
 ```bash
 sudo apt install python3-colcon-common-extensions python3-rosdep
 sudo apt install python3-numpy ros-jazzy-xacro ros-jazzy-robot-state-publisher ros-jazzy-rviz2
+sudo apt install ros-jazzy-robot-localization
 pip3 install pandas  # required by globalplanner.py
 ```
 
@@ -100,11 +106,16 @@ source install/setup.bash
 ```bash
 ros2 pkg list | grep autocar
 # Expected output:
+# autocar_common
 # autocar_description
 # autocar_gazebo
+# autocar_localization
 # autocar_map
 # autocar_msgs
 # autocar_nav
+# autocar_perception
+# autocar_planning
+# autocar_safety
 ```
 
 ---
@@ -144,33 +155,269 @@ ros2 launch launches default_launch.py world:=autocar_city.world
 
 ## Architecture
 
-### Topic Flow
+DriveSim is organized as a layered autonomous-driving stack. The current repository implements the minimal loop needed for waypoint following and lidar-based mapping, while the architecture below defines a clean extension path for more realistic perception, planning, control, and safety.
 
-```
-Gazebo Harmonic (gz-sim)
-  /model/autocar/cmd_vel      <-- from ROS /autocar/cmd_vel (via bridge remapping)
-  /model/autocar/odometry     --> ROS /autocar/odom (via bridge)
-  /model/autocar/tf           --> ROS /tf (via bridge)
-  /model/autocar/scan         --> ROS /scan (via bridge)
-
-ROS 2 Navigation Stack
-  /autocar/odom           --> localisation.py --> /autocar/state2D
-  /autocar/state2D        --> global_planner  --> /autocar/goals
-  /autocar/goals          --> local_planner   --> /autocar/path
-  /autocar/path           --> tracker.py      --> /autocar/cmd_vel
-  /autocar/odom + /scan   --> bof             --> /map
+```text
+Sensors -> Localization -> Perception -> Planning -> Control -> Safety -> Vehicle
 ```
 
-### Nodes
+### System Pipeline
 
-| Node | Package | Purpose |
+```text
+Gazebo Sensors
+  -> ros_gz_bridge
+  -> Localization
+  -> Perception
+  -> Behavior Planner
+  -> Frenet / Trajectory Planner
+  -> Controller
+  -> Safety Gate
+  -> Vehicle Command
+  -> Gazebo Ackermann Vehicle
+```
+
+### 1. Sensing
+
+Gazebo Harmonic provides simulated sensors through native `gz-sim` systems. ROS 2 nodes consume the data through `ros_gz_bridge`. The baseline stack should stay lightweight and deterministic, with additional sensors added only when they support a specific perception or localization function.
+
+| Sensor | Example ROS topic | Role |
 |---|---|---|
-| `localisation.py` | autocar_nav | Converts odometry to State2D |
-| `globalplanner.py` | autocar_nav | Selects waypoints from CSV (2 Hz) |
-| `localplanner.py` | autocar_nav | Cubic spline interpolation |
-| `tracker.py` | autocar_nav | Stanley lateral controller |
-| `clickplanner.py` | autocar_nav | Interactive waypoint planner |
-| `bof` | autocar_map | Bayesian occupancy filter |
+| Odometry | `/autocar/odom` | Vehicle pose and velocity from the Gazebo drive model |
+| TF | `/tf`, `/tf_static` | Coordinate transforms between `odom`, `base_link`, and sensor frames |
+| 2D lidar | `/autocar/scan` | Obstacle geometry and local occupancy mapping |
+| IMU | `/autocar/imu` | Angular velocity and linear acceleration for pose filtering |
+| Front RGB camera | `/autocar/camera/front/image_raw` | Lane markings, traffic signs, and object detection |
+| Camera info | `/autocar/camera/front/camera_info` | Camera intrinsics for projection and geometry |
+| Depth camera | `/autocar/depth/image_raw` | Optional close-range obstacle depth |
+| Object detections | `/autocar/objects` | Perception output for planners |
+| Lane markings | `/autocar/lane_markings` | Camera-derived lane or road-edge output |
+
+Recommended future sensors include a 3D lidar, stereo camera, radar, and GPS. These should be introduced behind the same ROS 2 topic and frame conventions rather than changing the rest of the stack. The current launch files bridge the 2D lidar as `/autocar/scan`, bridge the front RGB camera as `/autocar/camera/front/image_raw`, synthesize `/autocar/camera/front/camera_info`, and publish lidar-derived objects on `/autocar/objects`.
+
+### 2. Localization
+
+Localization should publish one filtered vehicle pose used by perception, planning, and control. The `autocar_localization` package configures `robot_localization` for EKF fusion, while the existing `localisation.py` node converts the filtered odometry into the legacy `State2D` message and broadcasts `odom -> base_link`.
+
+```text
+autocar_localization/
+  ekf_localization_node
+```
+
+Inputs:
+
+- `/autocar/odom`
+- `/autocar/imu`
+- Optional `/autocar/gps/fix`
+
+Outputs:
+
+- `/odometry/filtered`
+- `odom -> base_link` TF
+
+The current implementation uses `robot_localization`, configured as an EKF that fuses Gazebo vehicle odometry with IMU. Optional GPS can be added later without changing the downstream planning and control interfaces.
+
+### 3. Perception
+
+Perception converts raw sensor data into planning-friendly scene information. It should remain modular so the simulator can run with only lidar, or with camera and depth sensors enabled for richer scenarios.
+
+```text
+autocar_perception/
+  camera_preprocessor.py
+  lane_detector.py
+  object_detector.py
+  depth_obstacle_detector.py
+  lidar_obstacle_detector.py
+  sensor_fusion.py
+```
+
+Core responsibilities:
+
+- Lidar obstacle detection from `/autocar/scan`
+- Camera preprocessing from `/autocar/camera/front/image_raw` to `/autocar/camera/front/image_proc`
+- Camera info publication on `/autocar/camera/front/camera_info`
+- Future camera lane detection from `/autocar/camera/front/image_proc`
+- Camera object detection for vehicles, pedestrians, signs, and cones
+- Optional RGB-D obstacle detection from `/autocar/depth/image_raw`
+- Optional sensor fusion into `/autocar/objects` and `/autocar/lane_markings`
+
+The existing Bayesian occupancy filter in `autocar_map` is a useful lightweight mapping component. It can continue publishing `/map`, while perception nodes provide object-level outputs for behavior and trajectory planning.
+
+### 4. Planning
+
+Planning is split into route management, behavior decisions, and trajectory generation. This keeps the current waypoint-following approach compatible while creating a clear place for obstacle-aware driving logic.
+
+#### Global Planning
+
+The existing `globalplanner.py` is a waypoint manager. In the target architecture it belongs in `autocar_planning` and is responsible for route generation and selecting a forward window of reference waypoints.
+
+Typical outputs:
+
+- `/autocar/global_route`
+- `/autocar/reference_path`
+- Current compatibility topic: `/autocar/goals`
+
+#### Behavior Planning
+
+Behavior planning decides what the vehicle should do before a local trajectory is generated. It can be implemented as a simple state machine rather than a heavy framework.
+
+```text
+autocar_behavior/
+  behavior_planner.py
+```
+
+Example states:
+
+- `LANE_FOLLOW`
+- `STOP`
+- `AVOID_OBSTACLE`
+- `GOAL_REACHED`
+- `EMERGENCY`
+
+Inputs include filtered pose, route progress, obstacles, lane markings, and safety status. Outputs include the selected driving mode, speed target, stop requests, and constraints for the local planner.
+
+#### Local / Trajectory Planning
+
+The current `localplanner.py` performs cubic-spline interpolation for basic waypoint following. A scalable upgrade is a Frenet-based local planner.
+
+Frenet coordinates describe motion relative to a reference path:
+
+- `s`: longitudinal distance along the path
+- `d`: lateral offset from the path
+
+This representation is practical for road driving because it separates progress along the road from lateral motion. A Frenet planner can sample candidate trajectories, reject collisions, score comfort and progress, and generate a velocity profile.
+
+Advantages over spline-only interpolation:
+
+- Decoupled lateral and longitudinal planning
+- Trajectory sampling around obstacles
+- Velocity profile generation
+- Constraint handling for curvature, acceleration, and jerk
+- Better scalability for lane following, stopping, and avoidance behavior
+
+| Planner | Description | Use Case |
+|--------|------------|---------|
+| Cubic spline | Simple interpolation through waypoints | Basic waypoint following |
+| Frenet planner | Trajectory generation in `(s, d)` frame | Obstacle-aware, structured driving |
+
+Implemented package structure:
+
+```text
+autocar_planning/
+  reference_path.py
+  frenet_planner.py
+  trajectory_sampler.py
+  collision_checker.py
+  velocity_profile.py
+```
+
+### 5. Control
+
+Control tracks the selected trajectory and converts it into drive commands for the Gazebo Ackermann vehicle.
+
+```text
+autocar_control/
+  stanley_controller.py
+  velocity_controller.py
+```
+
+The current `tracker.py` implements Stanley lateral control and publishes `/autocar/raw_cmd_vel`. The safety gate validates this raw command and publishes the final `/autocar/cmd_vel` command for Gazebo. Future extensions can add PID speed control or MPC for smoother tracking under tighter curvature and acceleration constraints.
+
+Controller responsibilities:
+
+- Track lateral path or trajectory error
+- Track target velocity
+- Publish steering and speed commands
+- Respect vehicle limits before commands reach the safety layer
+
+### 6. Safety
+
+Safety should sit between control and the vehicle command bridge. It validates outgoing commands and can override control when an unsafe condition is detected.
+
+```text
+autocar_safety/
+  safety_gate.py
+  emergency_stop.py
+  watchdog.py
+```
+
+Responsibilities:
+
+- Collision prevention from obstacle distance and predicted trajectory checks
+- Command validation for steering, speed, acceleration, and timeout limits
+- Emergency stop on imminent collision or system fault
+- Watchdog monitoring for stale localization, perception, planner, or controller outputs
+
+The safety gate publishes the final command to `/autocar/cmd_vel`, which is bridged to `/model/autocar/cmd_vel` for Gazebo.
+
+### Data Flow
+
+```mermaid
+flowchart TD
+    A["Gazebo Harmonic<br/>odometry / TF / lidar / camera / IMU"]
+    B["ros_gz_bridge"]
+    C["Localization<br/>/odometry/filtered, TF"]
+    D["Perception<br/>/autocar/objects, /autocar/lane_markings, /map"]
+    E["Global Planner<br/>/autocar/reference_path"]
+    F["Behavior Planner<br/>lane follow / stop / avoid / emergency"]
+    G["Frenet Planner<br/>feasible trajectory + velocity profile"]
+    H["Controller<br/>steering + velocity command"]
+    I["Safety Gate<br/>validated / overridden command"]
+    J["ros_gz_bridge → Gazebo Ackermann vehicle"]
+
+    A --> B --> C --> D --> E --> F --> G --> H --> I --> J
+```
+
+### Phased Implementation Plan
+
+DriveSim should evolve in small, testable phases:
+
+```text
+Phase 1: Architecture cleanup
+Phase 2: Sensor stack
+Phase 3: Localization
+Phase 4: Perception
+Phase 5: Frenet planner
+Phase 6: Control integration
+Phase 7: Safety gate
+Phase 8: Evaluation
+```
+
+The first implementation target is the minimal expert stack: Gazebo odometry, front 2D lidar, IMU, front RGB camera, EKF localization with odometry fallback, trajectory messages, Frenet planning, Stanley trajectory tracking, safety-gated vehicle commands, lightweight lidar obstacle detection, and camera preprocessing. Camera AI, full behavior planning, MPC, and evaluation metrics should be added only after this loop is stable.
+
+### Package Layout
+
+Recommended modular layout:
+
+```text
+autocar_description/    # Robot URDF/Xacro and RViz configuration
+autocar_gazebo/         # Gazebo Harmonic worlds, SDF model, meshes
+autocar_msgs/           # Shared message contracts
+autocar_map/            # Occupancy mapping
+autocar_nav/            # Legacy navigation nodes and compatibility adapters
+autocar_bringup/        # Future launch and runtime orchestration package
+autocar_control/        # Trajectory tracking and velocity control
+autocar_localization/   # EKF pose estimation and TF publishing
+autocar_perception/     # Lidar, camera, depth, and fusion perception
+autocar_planning/       # Global route, reference path, Frenet trajectory planning
+autocar_behavior/       # Driving state machine and decision logic
+autocar_safety/         # Safety gate, emergency stop, watchdogs
+autocar_common/         # Shared geometry, transforms, limits, and utilities
+autocar_evaluation/     # Future scenario metrics and regression tests
+```
+
+Current implementation mapping:
+
+| Current node/package | Target layer |
+|---|---|
+| `localisation.py` in `autocar_nav` | Localization |
+| `bof` in `autocar_map` | Perception / mapping |
+| `globalplanner.py` in `autocar_nav` | Global planning |
+| `localplanner.py` in `autocar_nav` | Legacy cubic-spline local planning |
+| `frenet_planner.py` in `autocar_planning` | Frenet trajectory planning |
+| `lidar_obstacle_detector.py` in `autocar_perception` | Lidar perception |
+| `tracker.py` in `autocar_nav` | Control |
+| `safety_gate.py` in `autocar_safety` | Safety |
+| `clickplanner.py` in `autocar_nav` | Interactive route input |
 
 ---
 

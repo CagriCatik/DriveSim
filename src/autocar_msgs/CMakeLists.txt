@@ -22,8 +22,13 @@ find_package(std_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/BehaviorState.msg"
+  "msg/DetectedObject.msg"
+  "msg/DetectedObjectArray.msg"
   "msg/Path2D.msg"
   "msg/State2D.msg"
+  "msg/Trajectory.msg"
+  "msg/TrajectoryPoint.msg"
   "msg/Twist2D.msg"
 DEPENDENCIES geometry_msgs std_msgs
  )

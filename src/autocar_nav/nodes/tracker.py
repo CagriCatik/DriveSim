@@ -8,7 +8,7 @@ from geometry_msgs.msg import PoseStamped, Twist
 from rclpy.node import Node
 from std_msgs.msg import Float64
 
-from autocar_msgs.msg import Path2D, State2D
+from autocar_msgs.msg import Path2D, State2D, Trajectory
 from autocar_nav import normalise_angle, yaw_to_quaternion
 
 
@@ -19,11 +19,12 @@ class PathTracker(Node):
         super().__init__('path_tracker')
 
         # Initialise publishers
-        self.tracker_pub = self.create_publisher(Twist, '/autocar/cmd_vel', 10)
+        self.tracker_pub = self.create_publisher(Twist, '/autocar/raw_cmd_vel', 10)
         self.lateral_ref_pub = self.create_publisher(PoseStamped, '/autocar/lateral_ref', 10)
 
         # Initialise subscribers
         self.localisation_sub = self.create_subscription(State2D, '/autocar/state2D', self.vehicle_state_cb, 10)
+        self.trajectory_sub = self.create_subscription(Trajectory, '/autocar/trajectory', self.trajectory_cb, 10)
         self.path_sub = self.create_subscription(Path2D, '/autocar/path', self.path_cb, 10)
         self.target_vel_sub = self.create_subscription(Float64, '/autocar/target_velocity', self.target_vel_cb, 10)
 
@@ -37,7 +38,8 @@ class PathTracker(Node):
                     ('softening_gain', 1.0),
                     ('yawrate_gain', 1.0),
                     ('steering_limits', 0.95),
-                    ('centreofgravity_to_frontaxle', 1.483)
+                    ('centreofgravity_to_frontaxle', 1.483),
+                    ('trajectory_timeout', 0.5)
                 ]
             )
 
@@ -47,6 +49,7 @@ class PathTracker(Node):
             self.kyaw = float(self.get_parameter("yawrate_gain").value)
             self.max_steer = float(self.get_parameter("steering_limits").value)
             self.cg2frontaxle = float(self.get_parameter("centreofgravity_to_frontaxle").value)
+            self.trajectory_timeout = float(self.get_parameter("trajectory_timeout").value)
 
         except Exception:
             raise Exception("Missing ROS parameters. Check the configuration file.")
@@ -62,6 +65,8 @@ class PathTracker(Node):
         self.cx = []
         self.cy = []
         self.cyaw = []
+        self.cvel = []
+        self.last_trajectory_time = None
 
         self.target_idx = None
         self.heading_error = 0.0
@@ -94,9 +99,14 @@ class PathTracker(Node):
     def path_cb(self, msg):
 
         self.lock.acquire()
+        if self.trajectory_active():
+            self.lock.release()
+            return
+
         self.cx = []
         self.cy = []
         self.cyaw = []
+        self.cvel = []
 
         for i in range(0, len(msg.poses)):
             px = msg.poses[i].x
@@ -106,6 +116,28 @@ class PathTracker(Node):
             self.cy.append(py)
             self.cyaw.append(ptheta) 
         self.lock.release()
+
+    def trajectory_cb(self, msg):
+
+        self.lock.acquire()
+        self.last_trajectory_time = self.get_clock().now()
+        self.cx = []
+        self.cy = []
+        self.cyaw = []
+        self.cvel = []
+
+        for point in msg.points:
+            self.cx.append(point.x)
+            self.cy.append(point.y)
+            self.cyaw.append(point.yaw)
+            self.cvel.append(point.velocity)
+        self.lock.release()
+
+    def trajectory_active(self):
+        if self.last_trajectory_time is None:
+            return False
+        age = (self.get_clock().now() - self.last_trajectory_time).nanoseconds * 1e-9
+        return age <= self.trajectory_timeout
 
     def target_vel_cb(self, msg):
 
@@ -132,6 +164,8 @@ class PathTracker(Node):
         # Heading error
         self.heading_error = normalise_angle(self.cyaw[target_idx] - self.yaw)
         self.target_idx = target_idx
+        if self.cvel:
+            self.target_vel = self.cvel[target_idx]
     
         pose = PoseStamped()
         pose.header.frame_id = "odom"
